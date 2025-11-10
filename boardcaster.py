@@ -2,7 +2,6 @@ import base64
 import json
 import os
 import math
-import qrcode
 import sys
 import tkinter as tk
 from PIL import Image, ImageTk
@@ -10,6 +9,9 @@ import threading
 import argparse
 import queue
 import time
+import qrcode
+
+from keepawake import start_mouse_keepalive
 
 # --- Configuration ---
 # Set the size of the data chunk (in bytes)
@@ -164,6 +166,11 @@ def main():
     parser.add_argument("file", help="The path to the file you want to send.")
     parser.add_argument("--remediate", help="Path to a 'missing_parts.json' file for remediation.")
     parser.add_argument("--resolution", default="1200x1200", help="Window resolution (e.g., 1200x700). Default is 1200x1200.")
+    parser.add_argument(
+        "--keep-awake",
+        action="store_true",
+        help="Simulate a mouse click every 5 minutes to prevent the broadcaster screen from turning off."
+    )
     
     args = parser.parse_args()
 
@@ -191,6 +198,12 @@ def main():
     total_parts = math.ceil(file_size / CHUNK_SIZE_BYTES)
     display_total = len(remediation_parts) if remediation_parts else total_parts
 
+    stop_keepalive = None
+    if args.keep_awake:
+        stop_keepalive = start_mouse_keepalive()
+        if stop_keepalive is None:
+            print("Keep-awake feature requested but could not be started.")
+
     root = tk.Tk()
     app = QRPresenter(root, image_queue, display_total, args.resolution)
 
@@ -206,6 +219,8 @@ def main():
     except KeyboardInterrupt:
         print("\nBroadcast stopped by user.")
     finally:
+        if stop_keepalive:
+            stop_keepalive()
         print("Closing application.")
 
 if __name__ == "__main__":

@@ -1,11 +1,15 @@
+import argparse
 import base64
 import json
-import time
-import os
 import multiprocessing as mp
-import queue # For the "Empty" exception
+import os
+import queue  # For the "Empty" exception
+import time
+
 from PIL import ImageGrab
 from pyzbar.pyzbar import decode
+
+from keepawake import start_mouse_keepalive
 
 # --- Configuration ---
 # This must match the sender script's chunk size
@@ -96,6 +100,18 @@ def save_draft_and_exit(chunks, total_parts, output_filename):
     except Exception as e:
         print(f"Error saving draft file: {e}")
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Receive QR code broadcasts and reconstruct the original file."
+    )
+    parser.add_argument(
+        "--keep-awake",
+        action="store_true",
+        help="Simulate a mouse click every 5 minutes to prevent the receiver screen from turning off."
+    )
+    return parser.parse_args()
+
+
 # --- Worker Processes ---
 
 def grabber_process(frame_queue):
@@ -148,7 +164,7 @@ def decoder_process(frame_queue, result_queue):
 
 # --- Main Controller ---
 
-def main_scanner():
+def main_scanner(keep_awake: bool = False):
     """
     Main process. Manages the worker processes and
     assembles the final file from the results queue.
@@ -161,10 +177,20 @@ def main_scanner():
 
     # Queues for process communication
     # maxsize helps prevent runaway memory use
-    frame_queue = mp.Queue(maxsize=1000) # Increased buffer
-    result_queue = mp.Queue(maxsize=1000) # Increased buffer
+    frame_queue = mp.Queue(maxsize=1000)  # Increased buffer
+    result_queue = mp.Queue(maxsize=1000)  # Increased buffer
     
     processes = []
+    stop_keepalive = None
+    if keep_awake:
+        stop_keepalive = start_mouse_keepalive()
+        if stop_keepalive is None:
+            print("Keep-awake feature requested but could not be started.")
+    
+    chunks = {}
+    total_parts = None
+    output_filename = None
+    last_part_found_time = time.time()
     
     try:
         # 1. Start the Grabber Process
@@ -181,11 +207,6 @@ def main_scanner():
             processes.append(decoder)
 
         # 3. This is the main loop for processing results
-        chunks = {}
-        total_parts = None
-        output_filename = None
-        last_part_found_time = time.time()
-        
         while True:
             # Check for timeout first
             if total_parts is not None:
@@ -281,10 +302,13 @@ def main_scanner():
         for p in processes:
             p.terminate()
             p.join()
+        if stop_keepalive:
+            stop_keepalive()
         print("Script terminated.")
 
 if __name__ == "__main__":
+    args = parse_args()
     # This is crucial for multiprocessing on Windows
     mp.freeze_support()
-    main_scanner()
+    main_scanner(keep_awake=args.keep_awake)
 
